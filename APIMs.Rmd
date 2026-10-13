@@ -1,0 +1,332 @@
+---
+title: "Gender in APIMs"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    df_print: paged
+---
+
+# Eligibility Screening
+
+```{r}
+library(readr)
+library(dplyr)
+```
+```{r}
+#importing screening spreadsheets
+Screening_AP<- read_csv("~/Downloads/APIM_Screening_AP - Sheet1.csv")
+Screening_SH<- read_csv("~/Downloads/APIM_Screening_SH - Sheet1.csv")
+
+# Assigning each study an ID
+Screening_AP$ID<- 1:121
+Screening_SH$ID<- 1:121
+
+# Moving ID variable so it appears first
+Screening_AP <- Screening_AP %>% relocate(ID)
+Screening_SH <- Screening_SH %>% relocate(ID)
+
+# Merging data
+Screening <- merge(Screening_AP, Screening_SH, by = "ID")
+
+# Convering yes and nos to 1s and 0s
+Screening$Eligible.x <- ifelse(Screening$Eligible.x == "Yes", 1, 0)
+Screening$Eligible.y <- ifelse(Screening$Eligible.y == "Yes", 1, 0)
+
+# Calculating agreement
+library(irr)
+eligible <- Screening %>% dplyr::select(Eligible.x, Eligible.y)
+agree(eligible) # so 99.2% agreement 
+
+# Creating a new variable that indicates whether AP and SH agreed
+Screening <- Screening %>%
+  mutate(MATCH = Eligible.x == Eligible.y)
+
+table(Screening$MATCH)
+120/121
+
+# After inspecting study that we disagreed on AP agreed with SH that study should be considered eligible
+# creating new variable that has final decisions, because AP and SH agreed on every study except 1 just using AP data
+Screening$Eligible.fin<- Screening$Eligible.x
+# now changing AP response for discrepant so that AP and SH agree
+Screening$Eligible.fin[Screening$ID == 92] <- 1
+
+table(Screening$Eligible.fin)
+99/121
+# So 99 or 82% of studies were eligible
+
+#reasons for exclusion
+table(Screening$`If no, why.x`)
+
+# selecting only studies considered eligible
+Extraction<- subset(Screening, Eligible.fin==1)
+# removing unnecessary variables
+Extraction <- Extraction[, c("ID", "Citation.x")]
+
+# Assigning coding teams to certain articles
+Extraction$Coder<- NA
+99/2 # Each coding team will code about 50
+Extraction$Coder <- c(rep("SHEC", 50), rep("APAB", 49))
+table(Extraction$Coder)
+# looks good
+
+write.csv(Extraction, "Extraction_AP.csv", row.names = FALSE)
+
+#Training round reliability was calulated manually for sake of simplicity and pairwise agreement ranged from 90-100%
+
+```
+
+
+# Coding 
+
+```{r}
+library(readxl)
+
+AP<- read_excel("~/Downloads/Extraction_AP (2).xlsx")
+AP <- AP[AP$Coder != "SHEC", ] # getting rid of rows not coded by AP and AB
+AB<- read_excel("~/Downloads/Extraction_AB (2).xlsx")
+AB <- AB[AB$Coder != "SHEC", ]
+SH<- read_excel("~/Downloads/Extraction_SH (2).xlsx")
+SH <- SH[SH$Coder != "APAB", ]
+EC<- read_excel("~/Downloads/Extraction_EC (2).xlsx")
+EC <- EC[EC$Coder != "APAB", ]
+
+
+# Comparing AP and AB studies to find discrepancies
+comparison_APAB <- data.frame(
+  ID = AP$ID,
+  Sexorient_div = AP$Sexorient_div_AP == AB$Sexorient_div_AB,
+  Gender_div = AP$Gender_div_AP == AB$Gender_div_AB,
+  distinguish = AP$distinguish_AP == AB$distinguish_AB,
+  Justification = AP$Justification_AP == AB$Justification_AB,
+  Pwr = AP$Pwr_AP == AB$Pwr_AB,
+  Pwr_gen_diff = AP$Pwr_gen_diff_AP == AB$Pwr_gen_diff_AB,
+  Prereg = AP$Prereg_AP == AB$Prereg_AB,
+  Prereg_disting = AP$Prereg_disting_AP == AB$Prereg_disting_AB,
+  Prereg_just = AP$Prereg_just_AP == AB$Prereg_just_AB,
+  Gen_diff = AP$Gen_diff_AP == AB$Gen_diff_AB,
+  Interpret_diff = AP$Interpret_diff_AP == AB$Interpret_diff_AB
+)
+
+
+# calculating percent agreement
+agreement_APAB <- sapply(comparison_APAB[-1], function(x) {
+  mean(x, na.rm = TRUE) * 100
+})
+
+round(agreement_APAB, 4)
+
+# agreement for distinguishing variable was manually calculated in a separate spreadsheet because this was a character variable so any minor difference (e.g., Gender vs gender) was flagged as a discrepancy
+
+
+comparison_SHEC <- data.frame(
+  ID = SH$ID,
+  Sexorient_div = SH$Sexorient_div_SH == EC$Sexorient_div_EC,
+  Gender_div = SH$Gender_div_SH == EC$Gender_div_EC,
+  distinguish = SH$distinguish_SH == EC$distinguish_EC,
+  Justification = SH$Justification_SH == EC$Justification_EC,
+  Pwr = SH$Pwr_SH == EC$Pwr_EC,
+  Pwr_gen_diff = SH$Pwr_gen_diff_SH == EC$Pwr_gen_diff_EC,
+  Prereg = SH$Prereg_SH == EC$Prereg_EC,
+  Prereg_disting = SH$Prereg_disting_SH == EC$Prereg_disting_EC,
+  Prereg_just = SH$Prereg_just_SH == EC$Prereg_just_EC,
+  Gen_diff = SH$Gen_diff_SH == EC$Gen_diff_EC,
+  Interpret_diff = SH$Interpret_diff_SH == EC$Interpret_diff_EC
+)
+
+agreement_SHEC <- sapply(comparison_SHEC[-1], function(x) {
+  mean(x, na.rm = TRUE) * 100
+})
+
+round(agreement_SHEC, 4)
+
+write.csv(comparison_APAB, "compare_APAP.csv", row.names = FALSE)
+write.csv(comparison_SHEC, "compare_SHEC.csv", row.names = FALSE)
+
+```
+
+
+# Justification variable
+
+```{r}
+data<- read_csv("~/Downloads/Extraction_Compiled - Sheet1 (3).csv")
+data[data =="NA"] <- NA #Making NA values NA
+data$Justification_APEC <- data$Justification_ABEC #renaming this variable as I previously erroneously labelled it. This column was ratings from AP and EC
+
+# There were some issues caused the fact that values for justification hinged on whether coders deemed the study indistinguishable or distinguishable, as coder automatically coded this value 'NA' if it they thought the study was indistiguishable. As a full team on Sep 15 26 we went through values where one coder said NA and the other gave it 1, 2, or 3 and reached consensus as a group. 
+
+data$Justification_c <- dplyr::case_when(
+  data$distinguish_c == "Indistinguishable" ~ NA_real_,
+  !is.na(data$Justification_c) ~ data$Justification_c,
+  !is.na(data$Justification_APEC) | !is.na(data$Justification_SHAB) ~ 
+    rowMeans(data[, c("Justification_APEC", "Justification_SHAB")], na.rm = TRUE),
+  TRUE ~ NA_real_
+)#This if else statement keeps values we decided on in group consensus meeting for discrepancies otherwise takes the mean of the 2 coders
+
+mean(data$Justification_APEC[1:64] == data$Justification_SHAB[1:64], na.rm = TRUE) * 100
+mean(data$Justification_APEC[65:120] == data$Justification_SHAB[65:120], na.rm = TRUE) * 100
+
+(75+85.71)/2 # so avg pairwise agreement for justification is 80.36
+
+```
+
+# Results
+
+```{r}
+#subsetting dataset by distinguishable
+data.in<- subset(data, distinguish_c=="Indistinguishable")
+data.d<- subset(data, distinguish_c=="Distinguishable")
+data.g<-subset(data, dist_var_c=="Gender")
+
+table(data$distinguish_c)
+```
+
+## All studies 
+
+```{r}
+table(data$dist_var_c)
+
+table(data$distinguish_c)
+
+table(data$Study)
+
+table(data$Journal)
+
+
+75/95
+62/75
+8/75
+2/75
+1/75
+
+```
+
+## Indistinguishable studies
+
+```{r}
+
+```
+
+
+## Distinguishable studies 
+
+```{r}
+mean(data.d$Justification_c, na.rm=T)
+sd(data.d$Justification_c, na.rm=T)
+```
+
+## Distinguishable by Gender studies 
+
+
+```{r}
+table(data.g$Gender_div_c)
+
+mean(data.g$Justification_c, na.rm=T)
+sd(data.g$Justification_c, na.rm=T)
+```
+
+# Table
+
+```{r}
+library(dplyr)
+library(tidyr)
+library(flextable)
+
+variables <- c(
+  "Sexorient_div_c",
+  "Gender_div_c",
+  "dist_var_c",
+  "Pwr_c",
+  "Pwr_gen_diff_c",
+  "Prereg_c",
+  "Prereg_disting_c",
+  "Prereg_just_c",
+  "Gen_diff_c",
+  "Interpret_diff_c"
+)
+
+make_sample_table <- function(data, variables, sample_name) {
+  
+  lapply(variables, function(v) {
+    
+    # Remove missing values
+    x <- data[[v]][!is.na(data[[v]])]
+    
+    # If there are no non-missing values
+    if (length(x) == 0) {
+      return(data.frame(
+        Variable = v,
+        Category = NA_character_,
+        Value = NA_character_
+      ))
+    }
+    
+    # Count each category
+    tab <- table(x)
+    
+    # Denominator = number of non-missing observations
+    denominator <- length(x)
+    
+    # Calculate percentages
+    percent <- round(as.numeric(tab) / denominator * 100, 1)
+    
+    data.frame(
+      Variable = v,
+      Category = names(tab),
+      Value = paste0(
+        as.numeric(tab), "/", denominator,
+        " (", percent, "%)"
+      )
+    )
+    
+  }) %>%
+    bind_rows() %>%
+    rename(!!sample_name := Value)
+}
+
+all <- make_sample_table(data, variables, "All Studies")
+ind <- make_sample_table(data.in, variables, "Indistinguishable")
+dist <- make_sample_table(data.d, variables, "Distinguishable")
+gender <- make_sample_table(data.g, variables, "Distinguishable by Gender")
+
+summary_table <- all %>%
+  full_join(ind, by = c("Variable", "Category")) %>%
+  full_join(dist, by = c("Variable", "Category")) %>%
+  full_join(gender, by = c("Variable", "Category"))
+
+summary_table
+
+library(flextable)
+
+ft <- flextable(summary_table) %>%
+  set_header_labels(
+    Variable = "Variable",
+    Category = "Category",
+    `All Studies` = "All Studies\n(N = 95)",
+    Indistinguishable = "Indistinguishable\n(N = 20)",
+    Distinguishable = "Distinguishable\n(N = 75)",
+    `Distinguishable by Gender` = "Distinguishable by Gender\n(N = 62)"
+  ) %>%
+  theme_booktabs() %>%
+  autofit()
+
+save_as_docx(
+  ft,
+  path = "APIM_table.docx"
+)
+```
+
+
+# Figures
+
+```{r}
+library(ggplot2)
+
+ggplot(data, aes(x = Sexorient_div_c)) +
+  geom_bar() +
+  facet_wrap(~ distinguish_c) +
+  labs(
+    x = "Sexual Orientation Diversity",
+    y = "Frequency"
+  ) 
+```
+
